@@ -1,0 +1,4 @@
+"0","all.gamma <- rbind(cg.sub, gg.sub, usgs.sub)
+"
+"2","Error in rbind(cg.sub, gg.sub, usgs.sub) : object 'cg.sub' not found
+"

@@ -1,0 +1,3 @@
+"0","guelph <- read.csv(""raw_data/Seasonal Thaw Depth Data Dielman.csv"",header=TRUE)"
+"0","usgs1 <- read.csv(""raw_data/FINAL End of Season usgs.csv"",header=TRUE)"
+"0","crell <- read.csv(""raw_data/douglas APEX ERT lines thaw depths October 2017.csv"", header=TRUE)"
