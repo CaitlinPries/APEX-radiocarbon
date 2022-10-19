@@ -1,0 +1,6 @@
+"0","guelph.gamma <- subset(guelph, Site==""Permafrost Plateau "")"
+"0","guelph.gamma$Date <- strptime(guelph.gamma$Date, format=""%d/%b/%y"", tz=""America/Anchorage"")"
+"0","guelph.gamma$Date <- as.Date(guelph.gamma$Date, format=""%Y/%m/%d"")"
+"0","guelph.gamma$month <- month(guelph.gamma$Date)"
+"2","Error in month(guelph.gamma$Date) : could not find function ""month""
+"
