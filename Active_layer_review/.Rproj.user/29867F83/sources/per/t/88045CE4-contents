@@ -1,0 +1,324 @@
+#This script combines files for scripts so they can be shared, analyzed, 
+#and plotted in other scripts.
+
+##Libraries
+library(here)
+library(tidyverse)
+library(readr) #For reading in the AirMar files
+library(data.table) #used when combining datasets
+library(lubridate) # for with_ and force_tz
+library(ggplot2)
+library(gridExtra) #put multiple plots together
+
+#So we don't lose fractional seconds
+options(digits.secs = 3)
+
+#Select folder with all flight data
+#This folder should have subfolders for RKI, RTK, AirMar, & M600 data
+tcltk::tk_messageBox(title = "Hello",
+             message = "After selecting OK, please select the flight data folder. This folder should have a subfolder called data with
+             other subfolders called rki, dji, etc)", icon = "info", type = "ok")
+setwd(choose.dir(default = "", caption = "Select folder with flight data"))
+data.loc <- basename(getwd())
+
+#Import files from different data sources
+
+##RKI##
+
+#Files must have data in them. Delete anything that's only 1 kb
+rkifiles <- list.files(here("data", "RKI"), recursive = T, full.names=TRUE)
+read.rki <- lapply(rkifiles, read.csv, header=FALSE, skip=2)
+RKI <- do.call(rbind, read.rki)
+colnames(RKI) <- c("tstamp","utc_time", "lat", "lon", "alt", "true_course", "speed", "CH4_range", "CH4", "CH4_avg", "CH4_relative", "C2h6_range", "C2H6", "H20", "Pres", "Temp", "LaserPath", "RangeFinder", "LaserPower", "WindU", "WindV", "WindW", "WindTemp", "WindPressure")
+
+#user selects timezone
+tzchoice <- menu(c("Alaska", "California"), title="which timezone?")
+timezone_RKI <- ifelse(tzchoice==1,"America/Anchorage","America/Los_Angeles")
+print(timezone_RKI)
+
+#set RKI time
+#NEED TO USE UTC_TIME, NOT TSTAMP, WHICH IS PHONE TIME
+#DEREK IS USING COLUMN RKI.DATEIME_GMT, #83
+toff <- 25569 # adjustment for excel time
+RKI$tmp_time <- hms::hms(days = (RKI$tstamp - toff))
+RKI$rki.datetime <- as.POSIXct(RKI$tmp_time, format="%Y-%m-%d %H:%M:%S")
+RKI$rki.datetime <- force_tz(RKI$rki.datetime, tzone= timezone_RKI)
+RKI$rki.datetime_gmt <- with_tz(RKI$rki.datetime, "UTC")
+
+write.csv(RKI, "allRKI.csv")
+
+##AIRMAR##
+
+airmarfiles <- list.files(here("data", "AirMar"), recursive = T, full.names=TRUE)
+
+#Function at end of code not working so writing out code, once for each file.
+read.airmar <- read_lines(airmarfiles[1])
+airmar.temp <- as.data.frame(read.airmar)
+airmar.text <- airmar.temp[grepl("WIMWV", airmar.temp$read.airmar),]
+airmar.sep <- read.csv(text=paste(airmar.text), header=FALSE)
+ids <- str_sub(airmarfiles[1],-27,-1)
+airmar.sep$filename <- ids
+airmar1 <- airmar.sep
+
+read.airmar <- read_lines(airmarfiles[2])
+airmar.temp <- as.data.frame(read.airmar)
+airmar.text <- airmar.temp[grepl("WIMWV", airmar.temp$read.airmar),]
+airmar.sep <- read.csv(text=paste(airmar.text), header=FALSE)
+ids <- str_sub(airmarfiles[2],-29,-1)
+airmar.sep$filename <- ids
+airmar2 <- airmar.sep
+
+read.airmar <- read_lines(airmarfiles[3])
+airmar.temp <- as.data.frame(read.airmar)
+airmar.text <- airmar.temp[grepl("WIMWV", airmar.temp$read.airmar),]
+airmar.sep <- read.csv(text=paste(airmar.text), header=FALSE)
+ids <- str_sub(airmarfiles[3],-29,-1)
+airmar.sep$filename <- ids
+airmar3 <- airmar.sep
+
+airmar.all <-rbind(airmar1, airmar2, airmar3)
+
+colnames(airmar.all) <- c("time_type", "AirmarWD", "true-rel", "WS_knots", "units", "notes", "filename")
+airmar.all$date <- substr(airmar.all$filename,1,11)
+airmar.all$time <- substr(airmar.all$time_type,1,12)
+airmar.all$airmar.datetime <- as.POSIXct(paste(airmar.all$date, airmar.all$time), format="%b_%d_%Y %H:%M:%S")
+airmar.all$airmar.datetime <- force_tz(airmar.all$airmar.datetime, tzone= timezone_RKI)
+airmar.all$AirmarWS_msec <- airmar.all$WS_knots * 0.514444
+
+#Mark & remove invalid data (notes begins with a V)
+airmar.all$valid.data <- NA
+for (i in 1:nrow(airmar.all)) {
+  if(substr(airmar.all$notes[i],1,1)== "V") {
+    airmar.all$valid.data[i] <- FALSE
+  } else {
+    airmar.all$valid.data[i] <- TRUE
+  }
+}
+airmar.all <- subset(airmar.all, valid.data==TRUE)
+
+#airmar.all$airmar.datetime_gmt <- with_tz(airmar.all$airmar.datetime, "UTC")
+
+write.csv(airmar.all, "allAirMar.csv")
+
+
+##DJI##
+  
+#Timestamp appears not to have milliseconds (can we enable?) so not using for now
+#read in files
+djifiles <- list.files(pattern=".csv", here("data", "DJI"), recursive = T, full.names=TRUE)
+read.dji <- lapply(djifiles, read.csv, header=FALSE, skip=1)
+DJI <- do.call(rbind, read.dji)
+dji.names <- read.csv(djifiles[1], header = FALSE, nrows=1, colClasses = "character")
+dji.names <- dji.names[,1:51]
+colnames(DJI) <- dji.names
+colnames(DJI)[1] <- "milliseconds"
+colnames(DJI)[2] <- "datetime_utc"
+colnames(DJI)[10] <- "speed.mph"
+colnames(DJI)[20] <- "xSpeed.mph"
+colnames(DJI)[21] <- "ySpeed.mph"
+colnames(DJI)[22] <- "zSpeed.mph"
+colnames(DJI)[23] <- "DJIheading"
+colnames(DJI)[24] <- "pitch"
+colnames(DJI)[25] <- "roll"
+
+#set DJI time
+DJI$date <-substr(DJI$datetime_utc, 1, 10)
+DJI$time <- substr(DJI$datetime_utc, 12, 19)
+DJI$timestamp_utc <- as.POSIXct(paste(DJI$date, DJI$time), "%Y-%m-%d %H:%M:%OS", tz="UTC", origin="1970-01-01")
+DJI$time_as_number <- as.numeric(DJI$timestamp_utc)
+
+#create loop that adds milliseconds to initial time as timestamp doesn't have decimal seconds
+#Sometimes skips ahead (not all 100 msec off) so must adjust calculation by this value
+DJI$msec_diff <- NA #create empty column
+DJI$time_as_number2 <- NA #create empty column
+start_time = 0
+
+for (i in 1:nrow(DJI)) {
+  if(DJI$milliseconds[i] == 0) {
+    DJI$msec_diff[i] <- 0
+    } else {
+      DJI$msec_diff[i] <- DJI$milliseconds[i]-DJI$milliseconds[i-1]
+    }
+}
+
+for (i in 1:nrow(DJI)) {
+  if(DJI$milliseconds[i]==0){
+    if(DJI$datetime_utc[i]==DJI$datetime_utc[i+9]) {
+      start_time<-DJI$time_as_number[i]
+      DJI$time_as_number2[i]<-DJI$time_as_number[i]
+    } else {
+      if(DJI$datetime_utc[i]==DJI$datetime_utc[i+8]) {
+        start_time<-DJI$time_as_number[i] + 0.1
+        DJI$time_as_number2[i]<-DJI$time_as_number[i] + 0.1
+       } else {
+        if(DJI$datetime_utc[i]==DJI$datetime_utc[i+7]) {
+          start_time<-DJI$time_as_number[i] + 0.2
+          DJI$time_as_number2[i]<-DJI$time_as_number[i] + 0.2
+        } else {
+          if(DJI$datetime_utc[i]==DJI$datetime_utc[i+6]) {
+            start_time<-DJI$time_as_number[i] + 0.3
+            DJI$time_as_number2[i]<-DJI$time_as_number[i] + 0.3
+          } else {
+            if(DJI$datetime_utc[i]==DJI$datetime_utc[i+5]){
+              start_time<-DJI$time_as_number[i] + 0.4
+              DJI$time_as_number2[i]<-DJI$time_as_number[i] + 0.4
+            } else {
+              if(DJI$datetime_utc[i]==DJI$datetime_utc[i+4]) {
+                start_time<-DJI$time_as_number[i] + 0.5
+                DJI$time_as_number2[i]<-DJI$time_as_number[i] + 0.5
+              } else {
+                if(DJI$datetime_utc[i]==DJI$datetime_utc[i+3]) {
+                  start_time<-DJI$time_as_number[i] + 0.6
+                  DJI$time_as_number2[i]<-DJI$time_as_number[i] + 0.6
+                } else {
+                  if(DJI$datetime_utc[i]==DJI$datetime_utc[i+2]) {
+                    start_time<-DJI$time_as_number[i] + 0.7
+                    DJI$time_as_number2[i]<-DJI$time_as_number[i] + 0.7
+                  } else {
+                      start_time<-DJI$time_as_number[i] + 0.8
+                      DJI$time_as_number2[i]<-DJI$time_as_number[i] + 0.8
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+  } else{
+    if(DJI$msec_diff[i] == 100) {
+      DJI$time_as_number2[i]<-DJI$time_as_number2[i-1]+0.1
+    } else {
+      if(DJI$msec_diff[i] == 200) {
+        DJI$time_as_number2[i]<-DJI$time_as_number2[i-1]+0.2
+      } else {
+        if(DJI$msec_diff[i] == 300) {
+          DJI$time_as_number2[i]<-DJI$time_as_number2[i-1]+0.3
+        } else {
+          DJI$time_as_number2[i]<-DJI$time_as_number2[i-1]+0.4
+        }
+      }
+    }
+  }
+}
+
+#Better with this correction, but still off in some places by 0.2 seconds
+#Since it's 10 hz while RKI Hz I'm going to say this error is OK.
+
+DJI$timestamp_msec_utc <- as.POSIXct(DJI$time_as_number2, tz="UTC", origin="1970-01-01")
+DJI$timestamp_ak <- with_tz(DJI$timestamp_msec_utc, timezone_RKI)
+
+DJI$speed.msec <- DJI$speed.mph * 0.44704 
+DJI$xSpeed.msec <- DJI$xSpeed.mph * 0.44704 
+DJI$ySpeed.msec <- DJI$ySpeed.mph * 0.44704 
+DJI$zSpeed.msec <- DJI$zSpeed.mph * 0.44704 
+
+#Only keep columns I need
+DJI2 <- subset(DJI, select = c("latitude", "longitude", "speed.msec", "xSpeed.msec", "ySpeed.msec",
+                               "zSpeed.msec", "DJIheading", "pitch", "roll",
+                               "date", "timestamp_msec_utc", "timestamp_ak"))
+write.csv(DJI2, "allDJI.csv")
+
+#DJI code for NASA M600, file created by DatCon
+
+#read.dji <- lapply(djifiles, read.csv, header=FALSE, skip=2)
+#DJI <- do.call(rbind, read.dji)
+#dji.names <- read.csv(djifiles[1], header = FALSE, nrows=1, colClasses = "character")
+#dji.names <- dji.names[,1:426]
+#colnames(DJI) <- dji.names
+#Reset some names so no parentheses
+#colnames(DJI)[2] <- "datetime"
+
+#set DJI time
+#DJI$GPS_date <-substr(DJI$GPS_datetime, 1, 10)
+#DJI$GPS_time <- substr(DJI$GPS_datetime, 12, 19)
+#DJI$timestamp <- as.POSIXct(paste(DJI$GPS_date, DJI$GPS_time), "%Y-%m-%d %H:%M:%S", tz="UTC")
+#End NASA code
+
+###RTK###
+
+rtkfiles <- list.files(here(data.loc, "data", "RTK"), recursive = T, full.names=TRUE)
+read.rtk <- lapply(rtkfiles, read.csv, header=FALSE, skip=6, colClasses = c(V2 = "character"))
+RTK <- do.call(rbind, read.rtk)
+colnames(RTK) <- c("date", "time", "RTKlat", "RTKlong", "RTK_alt_WGS", "RTK_alt_msl", "hdg", "siv", "accuracy", "fix_type", "rtk", "blank")
+
+#set RTK time
+RTK$date <- as_date(RTK$date, "%Y-%m-%d")
+RTK$time2 <- (paste(substr(RTK$time, 2, 3),":", substr(RTK$time, 4, 5),":", substr(RTK$time, 7,8), sep=""))
+RTK$RTKdatetime_gmt <- ymd_hms(paste(RTK$date, RTK$time2))
+RTK$RTKdatetime_gmt <- force_tz(RTK$RTKdatetime_gmt, tzone="UTC")
+RTK$RTKdatetime_ak <- with_tz(RTK$RTKdatetime_gmt, tzone="America/Anchorage")
+
+#put periods in coordinates and degrees
+RTK$RTKlat <- paste(substr(RTK$RTKlat, 1,2),".",substr(RTK$RTKlat, 3,10), sep="")
+RTK$RTKlong <- paste(substr(RTK$RTKlong, 2,4),".",substr(RTK$RTKlong, 5,12), sep="")
+
+#Convert to numeric then convert altitude from mm to m, heading to decimal degrees, accuracy from mm to m
+RTK[5:9] <- lapply(RTK[5:9], as.numeric)
+RTK$RTK_alt_msl <- RTK$RTK_alt_msl * 0.001
+RTK$hdg <- RTK$hdg * 0.00001
+RTK$accuracy <- RTK$accuracy * 0.001
+
+write.csv(RTK, "allRTK.csv")
+
+#TOWER DATA (already combined in Plotting Tower data 2022)
+Tower <- read.csv("C:/Users/kmanies/OneDrive - DOI/Documents/Alaska-Bonanza/Beta-Gamma/Beta-Gamma Data/Tower flux data/AK_tower_2022/allTower_Aug2022.csv")
+#Adjust time from AKST to AKDT before combining
+Tower$timestamp_akdt <- as.POSIXct(Tower$timestamp_akdt, tz="America/Anchorage")
+
+###COMBINE DATASETS###
+setDT(RKI)
+setkey(RKI, rki.datetime)
+setDT(airmar.all)
+setkey(airmar.all, airmar.datetime)
+RKIairmar <- airmar.all[RKI, roll="nearest"]
+write.csv(RKIairmar, "RKIairmar_combined.csv")
+
+setDT(DJI2)
+setkey(DJI2, timestamp_ak)
+#RKI_DJI <- DJI[RKI, roll="nearest"]
+#write.csv(RKI_DJI, file="RKI-DJI_combined.csv")
+
+setkey(RKIairmar, airmar.datetime)
+RKI_airmar_DJI <- DJI2[RKIairmar, roll="nearest"]
+write.csv(RKI_airmar_DJI, "RKIairmarDJI_combined.csv")
+
+setDT(Tower)
+setkey(Tower, timestamp_akdt)
+RKI_DJI_airmar_Tower <- Tower[RKI_airmar_DJI, roll="nearest"]
+write.csv(RKI_DJI_airmar_Tower, "RKI_DJI_airmar_Tower.csv")
+
+####STUFF NOT USING#######
+
+##LEVI'S CODE:
+## sync relevant variables to common time basis
+xmin = as.numeric(min(c(DJI$GPS_timestamp,RKI$datetime)))
+xmax = as.numeric(max(c(JPL$datetime,RKI$datetime)))
+dt <- 1 # timestep in seconds
+len <- floor((xmax-xmin)/dt)
+sync_x <- seq(xmin,xmax,length=len)
+
+sync_alt <- sync(sync_x,as.numeric(JPL$datetime),JPL$alt)
+sync_WS <- sync(sync_x,as.numeric(JPL$datetime),JPL$WS)
+sync_CH4 <- sync(sync_x,as.numeric(RKI$datetime),RKI$CH4)
+sync_lat <- sync(sync_x,as.numeric(RKI$datetime),RKI$lat)
+sync_lon <- sync(sync_x,as.numeric(RKI$datetime),RKI$lon)
+sync_LaserPower <- sync(sync_x,as.numeric(RKI$datetime),RKI$LaserPower)
+
+#Airmar code as a function
+#Not working, not outputing a dataframe 
+readin_airmar <- function(airmarfiles, i) {
+  read.airmar <- read_lines(airmarfiles[i])
+  airmar.temp <- as.data.frame(read.airmar)
+  airmar.text <- airmar.temp[grepl("WIMWV", airmar.temp$read.airmar),]
+  airmar.sep <- read.csv(text=paste(airmar.text), header=FALSE)
+  ids <- str_sub(airmarfiles[i],-29,-1)
+  airmar.sep$filename <- ids
+  airmar.sep <<- airmar.sep
+}
+
+#Process each file listed in airmarfiles using above function
+for (i in num_times){
+  readin_airmar(airmarfiles, i)
+}
+

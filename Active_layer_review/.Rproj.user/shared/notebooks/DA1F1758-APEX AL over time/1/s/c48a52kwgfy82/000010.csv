@@ -1,6 +1,0 @@
-"0","usgs.gamma <- subset(usgs1, usgs1$Treatment == ""forest"")
-usgs.gamma$date <- strptime(usgs.gamma$date, format=""%d-%b-%y"", tz=""America/Anchorage"")
-usgs.gamma.AugOn <- subset(usgs.gamma, format(usgs.gamma$date,""%b"")==""Aug"" | format(usgs.gamma$date,""%b"")==""Sept"")
-aggregate(AL_cm ~ year, usgs.gamma.AugOn, mean)
-"
-"0",""

@@ -1,3 +1,0 @@
-"0","usgs1 <- cbind(usgs1, source=""USGS"")"
-"0","guelph <- cbind(guelph, source=""Guelph"")"
-"0","crell <- cbind(crell, source=""CRELL"")"

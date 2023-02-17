@@ -1,0 +1,5 @@
+"0","all.gamma <- rbind(cg.sub, gg.sub, usgs.sub, geo.1819.sub, geo.now.sub, apex.sub)
+"
+"2","Error in match.names(clabs, names(xi)) : 
+  names do not match previous names
+"

@@ -1,0 +1,24 @@
+{
+    "id": "88045CE4",
+    "path": "~/Alaska-sUAS work/Flights/Combine_flight_data.R",
+    "project_path": null,
+    "type": "r_source",
+    "hash": "385948990",
+    "contents": "",
+    "dirty": false,
+    "created": 1675971578478.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1669079782,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1669079782,
+    "read_only": false,
+    "read_only_alternatives": []
+}

@@ -1,0 +1,5 @@
+"0","crell$date <-substr(crell.gamma$DateTime, 1, 10)
+"
+"2","Error in `$<-.data.frame`(`*tmp*`, date, value = c(""2017-10-05"", ""2017-10-05"",  : 
+  replacement has 54 rows, data has 126
+"

@@ -1,0 +1,180 @@
+---
+title: "Compare_wind"
+author: "Manies"
+date: "2022-10-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(lubridate) # for with_ and force_tz
+library(rWind) #to convert from u and v components to WS and WD
+library(NISTunits) #to convert from radians to degrees
+library(ggplot2)
+library(ggpubr) #allows you to put multiple plots together
+
+```
+
+## Bring in and process data
+Orginially was using my data files (RKI_DJI_airmar_Tower.csv) but DH has gone through and corrected Tower WS by temperature and has data that is both uncorrected and correct for M600 height. His script uses AllTower_Aug2022.csv. I am going to comment out the code using my file and rewrite this script to use his file in the hopes that then our Tower WS 5-minute aveages match better with the 5-minute averages Colin sent us. (Now, for Aug 10 our values are between 1 - 2 m/s while Colin's are between 0 - 0.5 m/s).
+
+```{r}
+#So we don't lose fractional seconds
+options(digits.secs = 3)
+
+#Import data
+# DH.data <- read.csv(here("combined data files", "RKI_DJI_airmar_Tower.csv"))
+# wind.data <- DH.data[c("X", "timestamp_akdt", "Ux", "Uy", "Uz", "WS", "WD", "AvgWS", "AvgU", "AvgY", "AvgWD", "latitude", "longitude", "speed.msec", "xSpeed.msec", "ySpeed.msec", "zSpeed.msec", "DJIheading", "pitch", "roll", "AirmarWD", "AirmarWS_msec", "lat", "lon", "RangeFinder", "WindU", "WindV", "WindW")]
+# colnames(wind.data) <- c("X", "timestamp_akdt", "TowerUx", "TowerUy", "TowerUz", "TowerWS", "TowerWD", "TowerAvgWS", "TowerAvgU", "TowerAvgY", "TowerAvgWD", "DJIlat", "DJIlong", "DJIspeed.msec", "DJI.xSpeed.msec", "DJI.ySpeed.msec", "DJI.ZSpeed.msec", "DJIheading", "pitch", "roll", "AirmarWD", "AirmarWS", "lat", "lon", "RangeFinder", "rkiWindU", "rkiWindV", "rkiWindW")
+
+DHfiles <- list.files(here("AGU2022_permaflux", "processed_files"), recursive = T, full.names=TRUE)
+read.DH <- lapply(DHfiles, read.csv, header=FALSE)
+DH.data <- do.call(rbind, read.DH)
+colnames(DH.data) <- c("etime", "x", "y", "z", "lat", "lon", "pitch", "roll", "yaw", "pitch_rate", "roll_rate", "yaw_rate", "Tri_u_raw", "Tri_v_raw", "Tri_w_raw", "Tri_u_y0", "Tri_v_y0", "Tri_w_y0", "Tri_u_y1", "Tri_v_y1", "Tri_w_y1", "Tri_u_y2", "Tri_v_y2", "Tri_w_y2", "Tri_u_corr", "Tri_v_corr", "Tri_w_corr", "Tower_WS_uncorr", "Tower_WS_alt_corr", "Tower_WD_180", "u_tower_uncorr", "v_tower_uncorr", "w_tower_uncorr", "Airmar_WS_corr", "Airmar_WS_atm_corr", "Airmar_WD_uncorr", "u_airmar", "v_airmar", "w_airmar")
+DH.data$date.time <- as_datetime(DH.data$etime)
+DH.data$date.time <- force_tz(DH.data$date.time, tzone="UTC")
+DH.data$akst_date.time <- with_tz(DH.data$date.time, tzone="Etc/GMT+9")
+
+#Colin calculated 1, 5, and 30 minute corrected averages - various datafiles depending on which one I'm using.
+setwd("C:/Users/kmanies/OneDrive - DOI/Documents/Alaska-Bonanza/Beta-Gamma/Beta-Gamma Data/Tower flux data/AK_tower_2022/") 
+
+#1 minute average file
+tower.avg.all <- read.csv("eddypro_2022Bog_1HzAug10_1500.csv", skip=3, header=FALSE)
+setwd("C:/Users/kmanies/OneDrive - DOI/Documents/Alaska-Bonanza/Beta-Gamma/Beta-Gamma Data/Tower flux data/AK_tower_2022/") 
+header <- read.csv("eddypro_2022Bog_1HzAug10_1500.csv", header=FALSE, skip=1, nrows=1, stringsAsFactors = FALSE)
+colnames(tower.avg.all) <- header
+
+#5 minute average file
+#tower.avg.all <- read.csv("eddypro_2022Bog_5minAug_full_output_2022-11-23T161655_adv.csv", skip=3, header=FALSE)
+#header <- read.csv("eddypro_2022Bog_5minAug_full_output_2022-11-23T161655_adv.csv", header=FALSE, skip=1, nrows=1, stringsAsFactors = FALSE)
+#colnames(tower.avg.all) <- header
+
+#Average the data - don't need to run this code with the already averaged files
+tower.avg <- subset(tower.avg.all, select=c("date", "time", "wind_speed", "wind_dir"))
+
+#Convert date and time columns
+tower.avg$akst.datetime <- as.POSIXct(paste(tower.avg$date, tower.avg$time), format="%Y-%m-%d %H:%M", tz="Etc/GMT-9")
+#tower.avg$wind_speed <- ifelse(tower.avg$wind_speed > 0, tower.avg$wind_speed, NA)
+#tower.avg$wind_dir <- ifelse(tower.avg$wind_dir > 0, tower.avg$wind_dir, NA)
+
+```
+
+#Compare Tower 5-min averages to 5-min averages of DH Tower WS and WD
+The Tower average data (WS, U, and Y) are done in the Plotting Tower data_2022.R file. This code using a rolling mean over 15 minutes. However, the data shared by Colin is an average of the data in 5-minute blocks. So, we won't use the TowerAvg columns here, but instead calculate 5-minute averages.
+```{r}
+# wind.data$timestamp_akdt <- as.POSIXct(wind.data$timestamp_akdt, format="%Y-%m-%d %H:%M:%OS")
+# Tower_WS_5minmean <- aggregate(wind.data["TowerWS"], list(TimeInt = cut(wind.data$timestamp_akdt, "5 mins")), FUN=mean)
+# Tower_WD_5minmean <- aggregate(wind.data["TowerWD"], list(TimeInt = cut(wind.data$timestamp_akdt, "5 mins")), FUN=mean)
+
+Tower_WS_1minmean <- aggregate(DH.data["Tower_WS_uncorr"], list(TimeInt = cut(DH.data$akst_date.time, "1 mins")), FUN=mean)
+Tower_WD_1minmean <- aggregate(DH.data["Tower_WD_180"], list(TimeInt = cut(DH.data$akst_date.time, "1 mins")), FUN=mean)
+```
+
+
+#Plot data
+
+```{r}
+Tower_WS_1minmean$TimeInt <- as.POSIXct(Tower_WS_1minmean$TimeInt, format="%Y-%m-%d %H:%M:%OS", tz="Etc/GMT-9")
+Tower_WD_1minmean$TimeInt <- as.POSIXct(Tower_WD_1minmean$TimeInt, format="%Y-%m-%d %H:%M:%OS", tz="Etc/GMT-9")
+Tower_WD_1minmean$Tower_WD_360 <- ifelse(Tower_WD_1minmean$Tower_WD_180<0, Tower_WD_1minmean$Tower_WD_180+360,
+                                         Tower_WD_1minmean$Tower_WD_180)
+
+#subset data by date so not so much white space
+aug9.dh <- subset(Tower_WS_1minmean, TimeInt >= as.POSIXct("2022-08-09 16:00", tz="Etc/GMT-9") & TimeInt <= as.POSIXct("2022-08-09 17:00", tz="Etc/GMT-9"))
+aug9.tower <- subset(tower.avg, datetime >= as.POSIXct("2022-08-09 16:00") & datetime <= as.POSIXct("2022-08-09 17:00"))
+aug10.dh <- subset(Tower_WD_1minmean, TimeInt >= as.POSIXct("2022-08-10 15:00", tz="Etc/GMT-9") & TimeInt <= as.POSIXct("2022-08-10 15:30"))
+aug10.tower <- subset(tower.avg, akst.datetime >= as.POSIXct("2022-08-10 15:00") & akst.datetime <= as.POSIXct("2022-08-10 15:30"))
+
+WS.plot <- ggplot() +
+  geom_point(data=aug10.dh, aes(x=as.POSIXct(TimeInt), y=Tower_WS_uncorr, color="DHtower")) +
+  geom_point(data=tower.avg, aes(x=as.POSIXct(akst.datetime), y=wind_speed, color="Colin")) + 
+  labs(y="Wind Speed (m/s)") 
+print(WS.plot)
+
+WD.plot <- ggplot() +
+  geom_point(data=aug10.dh, aes(x=as.POSIXct(TimeInt), y=Tower_WD_360, color="DHtower")) +
+  geom_point(data=tower.avg, aes(x=as.POSIXct(akst.datetime), y=wind_dir, color="Colin")) + 
+  labs(y="Wind Direction")
+print(WD.plot)
+
+#ONCE UPDATE TOWER DATA, stop using TowerWS2
+WS.plot <- ggplot(data=aug10.tower) +
+  geom_point(data=aug10, aes(x=as.POSIXct(timestamp_akdt), y=RKItrueWS, color="Trisonnica")) +
+  geom_point(data=aug10, aes(x=as.POSIXct(timestamp_akdt), y=AirmarWS, color="Airmar")) + 
+  geom_point(data=aug10.tower, aes(x=as.POSIXct(datetime), y=wind_speed, color="Tower")) + 
+  labs(y="Wind Speed (m/s)") +
+  scale_x_datetime(limits=NULL, date_labels = "%m/%d %H:%M", timezone = "Etc/GMT-8")
+print(WS.plot)
+
+altitude.plot <- ggplot(data=aug9.tower) +
+  geom_line(aes(x=as.POSIXct(timestamp_akdt), y=RangeFinderQC*0.1)) +
+  labs(y="Altitude (cm)")
+ggarrange(WS.plot, altitude.plot, nrow=2, legend="bottom")
+
+WD.plot <- ggplot() +
+  geom_point(data=aug10, aes(x=as.POSIXct(timestamp_akdt), y=RKItrueWD, color="Trisonnica")) +
+  geom_point(data=aug10, aes(x=as.POSIXct(timestamp_akdt), y=AirmarWD, color="Airmar")) + 
+  geom_point(data=aug10.tower, aes(x=as.POSIXct(datetime), y=wind_dir, color="Tower")) + 
+  labs(y="Wind Direction")
+print(WD.plot)
+
+
+```
+# Process RKI data
+
+```{r}
+#IGNORE THESE TWO LINES FOR NOW
+#Tower WS needs z, redo correctly. Can delete once tower data updated through all steps
+#wind.data$TowerWS2 <- sqrt(wind.data$TowerUx^2 + wind.data$TowerUy^2 + wind.data$TowerUz^2)
+
+#Calculate and correct RKI wind data for DJI movement:
+#convert RKI u and v to wind speed and direction, put matrix results into a dataframe, add to wind.data
+rkiconvert <- uv2ds(wind.data$rkiWindU, wind.data$rkiWindV)
+rkiconvert.df <- as.data.frame(rkiconvert)
+wind.data$RKIuncorrWS <- rkiconvert.df$speed
+wind.data$RKIuncorrWD <- rkiconvert.df$dir
+
+#Adjust RKI direction (north = direction flying) by DJI heading
+wind.data$RKIcorrWD <- wind.data$RKIuncorrWD + wind.data$DJIheading
+#correct for those rows were adjusted wind direction >360 degrees
+for (i in 1:nrow(wind.data)) {
+  if(wind.data$RKIcorrWD[i] > 360) {
+    wind.data$RKIcorrWD[i] <- wind.data$RKIuncorrWD[i] - (360 - wind.data$DJIheading[i])
+  }
+}
+
+#calculate true wind speed
+wind.data$angleC <- ifelse(wind.data$DJIheading > wind.data$RKIcorrWD, 
+                           wind.data$DJIheading - wind.data$RKIcorrWD,
+                           wind.data$RKIcorrWD - wind.data$DJIheading)
+wind.data$RKItrueWS <- sqrt(wind.data$DJIspeed.msec^2 + wind.data$RKIuncorrWS^2 - (2*wind.data$DJIspeed.msec*wind.data$RKIuncorrWS) *
+                              cos(wind.data$angleC))
+
+#######################BELOW NOT QUITE RIGHT - NOTHING HIGHER THAN 200 DEGREES!!!##############
+#calculate true wind direction
+wind.data$RKItrueWD.radian <- acos((wind.data$DJIspeed.msec^2 - wind.data$RKItrueWS^2 -  - wind.data$RKIuncorrWS^2) /
+  -(2 * wind.data$RKItrueWS * wind.data$RKIuncorrWS))
+wind.data$RKItrueWD <- NISTradianTOdeg(wind.data$RKItrueWD.radian)
+
+#QC data by calculating other angle and making sure all add up to be 180 degrees
+wind.data$angleB.radian <- acos((wind.data$RKIuncorrWS^2 - wind.data$RKItrueWS^2 - wind.data$DJIspeed.msec^2) /
+                           - (2 * wind.data$RKItrueWS^2 * wind.data$DJIspeed.msec^2))
+wind.data$angleB <- NISTradianTOdeg(wind.data$angleB.radian)
+wind.data$angle.sum <- wind.data$angelC + wind.data$RKItrueWD + wind.data$angleB
+
+#QC Trisonnica data (remove random double the WS values)
+wind.data$RKItrueWS <- ifelse(wind.data$RKItrueWS > 10, NA, wind.data$RKItrueWS)
+
+#QC RangeFinder (altitude) data
+for (i in 2:nrow(wind.data)) {
+  wind.data$RFdiff[i] <- wind.data$RangeFinder[i] - wind.data$RangeFinder[i-1]
+}
+wind.data$RangeFinderQC <- ifelse(wind.data$RFdiff > 145, NA, wind.data$RangeFinder)
+
+#write.csv(wind.data, "winddata.csv")
+
+
+```
+
+

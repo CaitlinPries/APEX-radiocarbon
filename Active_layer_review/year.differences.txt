@@ -1,0 +1,5 @@
+ contrast  estimate SE df z.ratio p.value
+ (nothing)   nonEst NA NA      NA      NA
+
+Results are averaged over the levels of: APEX_region 
+Note: contrasts are still on the log scale 

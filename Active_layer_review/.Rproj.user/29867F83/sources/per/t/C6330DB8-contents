@@ -1,0 +1,72 @@
+library(here)
+library(lubridate) # for with_ and force_tz
+library(zoo)
+library(ggplot2)
+library(gridExtra)
+
+#So we don't lose fractional seconds
+options(digits.secs = 3)
+
+original.data <- read.csv(here("combined data files", "RKI-DJI_combined.csv"))
+original.data$timestamp_ak <- as.POSIXct(original.data$timestamp_ak, "%Y-%m-%d %H:%M:%OS", tz="America/Anchorage")
+
+#remove random high point
+original.data$CH4.qc <- ifelse (original.data$CH4 > 5, NA, original.data$CH4)
+
+#focus on 8/10 (day with multiple curtains)
+aug10.data <- subset(original.data, as.POSIXct(timestamp_ak, format="%Y-%m-%d %H:%M:%OS")  >= "2022-08-10 08:00:00" &
+  as.POSIXct(timestamp_ak, format="%Y-%m-%d %H:%M:%OS")  <= "2022-08-10 23:00:00")
+aug10.plot <- ggplot() +
+  geom_point(data=aug10.data, aes(x=as.POSIXct(timestamp_ak), y=CH4))
+print(aug10.plot)
+write.csv(aug10.data, "aug10.data.csv")
+
+#subset to beginning of first flight
+atm.flight1.a <- subset(aug10.data, X > 20321 & X < 27642)
+#remove time period when laser power drops
+atm.flight1.b <- subset(atm.flight1.a, X < 23350 | X > 23645)
+atm.flight1.plot <- ggplot() + 
+  geom_point(data=atm.flight1.b, aes(x=as.POSIXct(timestamp_ak), y=CH4))
+print(atm.flight1.plot)
+
+flight1.min <- min(atm.flight1.b$CH4)
+#CH4 = 2.221
+
+#subset to last flight of the day
+#take off at 65716, but laserpower drops around 65529
+#And CH4 occasionally drops after 64940
+atm.flight5.a <- subset(aug10.data, X > 63868 & X < 64950)
+atm.flight5.plot <- ggplot() + 
+  geom_point(data=atm.flight5.a, aes(x=as.POSIXct(timestamp_ak), y=CH4))
+print(atm.flight5.plot)
+
+flight5.min <- min(atm.flight5.a$CH4)
+#CH4 = 2.15
+
+
+#Don't think these stats are ok because we have pulses of CH4 while on the ground
+#Due to walking on the boardwalk?
+atm.est$ak.date <- date(atm.est$timestamp_ak)
+atm.est$ak.hour <- hour(atm.est$timestamp_ak)
+one.way <- aov(CH4 ~ ak.date + ak.hour, data=atm.est)
+summary(one.way)
+
+source(here("summarystats.r"))
+atm.stats <- summarystats(atm.est, measurevar="CH4.qc", na.rm=TRUE)
+print(atm.stats)
+
+#QC data by removing any CH4 values < 2.15
+aug10.data$CH4.qc <- ifelse(aug10.data$CH4.qc > 2.15, aug10.data$CH4.qc, NA)
+
+#subset data for examination (otherwise hard to see patterns)
+downwind1 <- subset(aug10.data, X>=27855 & X <= 29826)
+
+laser.plot <- ggplot() + 
+  geom_line(data=downwind1, aes(x=as.POSIXct(timestamp_ak), y=LaserPower), color="red")
+print(laser.plot)
+
+ch4.plot <- ggplot() + 
+  geom_point(data=downwind1, aes(x=as.POSIXct(timestamp_ak), y=CH4.qc), color="orange")
+print(ch4.plot)
+
+grid.arrange(laser.plot, ch4.plot, nrow=2)

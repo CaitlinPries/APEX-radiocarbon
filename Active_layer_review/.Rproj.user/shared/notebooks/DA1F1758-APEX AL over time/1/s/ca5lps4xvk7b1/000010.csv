@@ -1,9 +1,0 @@
-"0","crell.gamma <- subset(crell, Site==""Pfrost"")
-#extract date from timestamp
-crell.gamma$date <-substr(crell.gamma$DateTime, 1, 10)
-crell.gamma$transect <- substr(crell.gamma$Name, 4,5)
-crell.gamma$year <- year(crell.gamma$date)
-aggregate(Depth ~ transect, crell.gamma, mean)
-"
-"0","crell.gamma$date <- as.POSIXct(crell.gamma$date, ""%Y-%m-%d"", tz=""America/Anchorage"")"
-"0",""
